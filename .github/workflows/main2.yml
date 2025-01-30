@@ -28,6 +28,12 @@ jobs:
       env:
         NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
+    - name: Install Microsoft Store and AppX
+      run: |
+        Get-AppXPackage *WindowsStore* -AllUsers | Foreach {Add-AppxPackage -DisableDevelopmentMode -Register "$($_.InstallLocation)\AppXManifest.xml"}
+        Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe
+        Get-AppxPackage -AllUsers| Foreach {Add-AppxPackage -DisableDevelopmentMode -Register "$($_.InstallLocation)\AppXManifest.xml"}
+
     - name: Configure Windows RDP
       run: |
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
@@ -57,7 +63,10 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies
-        sudo apt-get install -y xrdp firefox steam wine lutris
+        sudo apt-get install -y xrdp firefox wine lutris
+        sudo apt-get install -y gnome-software ubuntu-software
+        sudo apt-get install -y flatpak gnome-software-plugin-flatpak
+        flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
         sudo systemctl enable xrdp
         sudo useradd -m gaming
         echo "gaming:Vulkan-Gaming" | sudo chpasswd
@@ -87,6 +96,6 @@ jobs:
     - name: Keep System Active
       run: |
         while true; do
-          echo "🎮 Ubuntu Gaming Active - $(date)"
+          echo "🎮 Gaming System Active - $(date)"
           sleep 300
         done
