@@ -1,0 +1,90 @@
+name: Ultimate Gaming System
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+  push:
+    branches: [ main ]
+
+jobs:
+  windows-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 9999
+
+    steps:
+    - name: Windows RDP Setup
+      run: |
+        Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+        Expand-Archive ngrok.zip
+        .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+
+    - name: Configure Windows RDP
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Vulkan-Gaming" -Force)
+
+    - name: Start Windows Tunnel
+      run: Start-Process Powershell -ArgumentList '-Noexit -Command ".\ngrok\ngrok.exe tcp 3389"'
+
+  ubuntu-gaming:
+    runs-on: ubuntu-latest
+    timeout-minutes: 357
+
+    steps:
+    - name: Gaming Environment Setup
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies
+        sudo apt-get install -y xrdp firefox steam wine lutris rclone rsync
+        sudo systemctl enable xrdp
+        sudo useradd -m gaming
+        echo "gaming:Vulkan-Gaming" | sudo chpasswd
+        sudo usermod -aG sudo gaming
+        echo "gaming ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/gaming
+        sudo chmod 0440 /etc/sudoers.d/gaming
+
+    - name: Install Gaming Components
+      run: |
+        sudo add-apt-repository ppa:graphics-drivers/ppa -y
+        sudo apt-get update
+        sudo apt-get install -y nvidia-driver-470 vulkan-tools mesa-vulkan-drivers
+        sudo apt-get install -y obs-studio vlc gimp
+        sudo apt-get install -y python3 python3-pip nodejs npm
+        sudo apt-get install -y build-essential git curl wget
+        mkdir -p /home/gaming/{persistent,Downloads,Games}
+        sudo chown -R gaming:gaming /home/gaming/
+
+    - name: Configure Gaming Services
+      run: |
+        sudo sed -i 's/3389/3390/g' /etc/xrdp/xrdp.ini
+        sudo systemctl restart xrdp
+        wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
+        unzip ngrok-v3-stable-linux-amd64.zip
+        ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        nohup ./ngrok tcp 3390 &
+        sleep 10
+
+    - name: Data Persistence
+      run: |
+        mkdir -p /home/gaming/.config/rclone
+        echo "${{ secrets.RCLONE_CONFIG }}" > /home/gaming/.config/rclone/rclone.conf
+        while true; do
+          date >> /home/gaming/persistent/uptime.log
+          rclone sync /home/gaming/persistent remote:gaming-backup
+          echo "🔄 Data synced - $(date)"
+          sleep 900
+        done &
+
+    - name: Keep Systems Active
+      run: |
+        while true; do
+          echo "🎮 Gaming Systems Active - $(date)"
+          curl -s http://localhost:4040/api/tunnels | jq -r .tunnels[0].public_url
+          sleep 300
+        done
+
