@@ -1,0 +1,95 @@
+name: Ultimate RDP Gaming
+
+on: workflow_dispatch
+
+jobs:
+  windows-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 525600
+
+    steps:
+    - name: Download Ngrok
+      run: |
+        Invoke-WebRequest https://raw.githubusercontent.com/romain09/AWS-RDP/main/ngrok.exe -OutFile ngrok.exe
+        copy ngrok.exe C:\Windows\System32
+        cmd /c echo ./ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN >a.ps1
+        cmd /c echo cmd /k start ngrok.exe tcp 3389 >>a.ps1
+        cmd /c echo ping -n 999999 10.10.10.10 >>a.ps1
+        .\a.ps1
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+
+    - name: Enable Terminal Services
+      run: |
+        # Enable TS
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        # Enable service features
+        Set-Service TermService -StartupType Automatic
+        Start-Service TermService
+        # Configure TS settings
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "MaxConnectionTime" -Value 0
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "MaxDisconnectionTime" -Value 0
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "MaxIdleTime" -Value 0
+
+    - name: Setup Audio and Controllers
+      run: |
+        Invoke-WebRequest https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack43.zip -OutFile vbaudio.zip
+        Expand-Archive vbaudio.zip -DestinationPath C:\VBCABLE
+        Start-Process -FilePath "C:\VBCABLE\VBCABLE_Setup_x64.exe" -ArgumentList '/install' -Wait
+        Invoke-WebRequest https://github.com/ViGEm/ViGEmBus/releases/download/v1.21.442/ViGEmBus_1.21.442_x64_x86_arm64.exe -OutFile vigem.exe
+        Start-Process -FilePath "vigem.exe" -ArgumentList '/quiet' -Wait
+
+    - name: Enable RDP Access
+      run: | 
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+
+  ubuntu-rdp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 525600
+
+    steps:
+    - name: Install Terminal Services
+      run: |
+        sudo apt update
+        sudo apt install -y xrdp
+        sudo systemctl enable xrdp
+        sudo systemctl start xrdp
+        # Enhanced XRDP settings
+        sudo sed -i 's/max_bpp=32/max_bpp=128/g' /etc/xrdp/xrdp.ini
+        sudo sed -i 's/xserverbpp=24/xserverbpp=128/g' /etc/xrdp/xrdp.ini
+        sudo sed -i 's/crypt_level=high/crypt_level=none/g' /etc/xrdp/xrdp.ini
+        sudo sed -i 's/security_layer=negotiate/security_layer=rdp/g' /etc/xrdp/xrdp.ini
+
+    - name: Install Ubuntu Desktop and Audio
+      run: |
+        sudo apt install -y ubuntu-desktop
+        sudo apt install -y chromium-browser
+        sudo apt install -y pulseaudio pavucontrol
+        sudo apt install -y joystick jstest-gtk
+        sudo adduser xrdp ssl-cert
+        sudo sed -i 's/3389/53682/g' /etc/xrdp/xrdp.ini
+        echo "load-module module-native-protocol-tcp auth-anonymous=1" | sudo tee -a /etc/pulse/default.pa
+        sudo systemctl restart xrdp
+
+    - name: Set Password
+      run: |
+        sudo useradd -m -s /bin/bash gaming
+        sudo adduser gaming sudo
+        echo "gaming:P@ssw0rd!" | sudo chpasswd
+        echo "gaming ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/gaming
+
+    - name: Setup Ngrok
+      run: |
+        wget https://raw.githubusercontent.com/romain09/AWS-RDP/main/ngrok
+        chmod +x ngrok
+        ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        ./ngrok tcp 53682 &
+
+    - name: Keep Alive
+      run: |
+        while true; do
+          echo "RDP ACTIVE 🚀"
+          sleep 300
+        done
