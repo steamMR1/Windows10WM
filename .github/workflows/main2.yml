@@ -1,4 +1,4 @@
-name: Ultimate Gaming System
+name: Ultimate Gaming Systems
 
 on:
   workflow_dispatch:
@@ -20,37 +20,44 @@ jobs:
     timeout-minutes: 525600
 
     steps:
-    - name: Optimize System
+    - name: Prep System
       run: |
         Set-ExecutionPolicy Bypass -Scope Process -Force
-        powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
-        reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f
-        reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "Priority" /t REG_DWORD /d 6 /f
-        reg add "HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl" /v "Win32PrioritySeparation" /t REG_DWORD /d 38 /f
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
 
-    - name: Setup Gaming Environment
+    - name: Download Ngrok
       run: |
         Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
         Expand-Archive ngrok.zip
         .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
-        $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest "https://us.download.nvidia.com/windows/537.13/537.13-desktop-win10-win11-64bit-international-dch-whql.exe" -OutFile "NVIDIA.exe"
-        Start-Process -FilePath "NVIDIA.exe" -ArgumentList "/s /n" -Wait
       env:
         NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
-    - name: Configure RDP
-      run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+    - name: Enable RDP
+      run: | 
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Vulkan-Gaming" -Force)
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
 
-    - name: Launch Gaming Session
+    - name: Create Tunnel
+      run: Start-Process Powershell -ArgumentList '-Noexit -Command ".\ngrok\ngrok.exe tcp 3389"'
+
+    - name: Set Password & Connect
       run: |
-        Start-Process Powershell -ArgumentList '-Noexit -Command ".\ngrok\ngrok.exe tcp 3389"'
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Vulkan-Gaming" -Force)
         $Env:DISPLAY=":0"
-        nvidia-smi -pm 1
+        echo "🎮 Windows Gaming Ready!"
+        echo "Username: runneradmin"
+        echo "Password: Vulkan-Gaming"
+
+    - name: Keep Alive
+      run: |
+        $i = 525600
+        while($i -gt 0) {
+            Write-Host "⚡ Windows Active: $i minutes remaining"
+            Start-Sleep -Seconds 60
+            $i--
+        }
 
   ubuntu-gaming:
     if: github.event.inputs.os_choice == 'ubuntu' || github.event.inputs.os_choice == 'both'
@@ -58,30 +65,51 @@ jobs:
     timeout-minutes: 525600
 
     steps:
-    - name: Setup Gaming Environment
+    - name: Initial Setup
       run: |
-        sudo apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies
-        sudo apt-get install -y xrdp wine lutris
+        sudo apt update
+        sudo DEBIAN_FRONTEND=noninteractive apt install -y ubuntu-desktop xrdp xfce4 xfce4-goodies
+        sudo apt install -y xfce4-terminal
+        echo xfce4-session > ~/.xsession
+        sudo service xrdp restart
+
+    - name: Configure XRDP
+      run: |
+        sudo sed -i.bak '/fi/a #xrdp multiple users configuration \n mate-session \n' /etc/xrdp/startwm.sh
+        sudo ufw allow 3389/tcp
+        sudo ufw reload
         sudo systemctl enable xrdp
-        sudo useradd -m gaming
-        echo "gaming:Vulkan-Gaming" | sudo chpasswd
+        sudo systemctl restart xrdp
+
+    - name: Setup Gaming User
+      run: |
+        sudo useradd -m -s /bin/bash gaming
         sudo usermod -aG sudo gaming
-        echo "gaming ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/gaming
+        echo "gaming:Vulkan-Gaming" | sudo chpasswd
+        sudo echo "gaming ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/gaming
         sudo chmod 0440 /etc/sudoers.d/gaming
 
-    - name: Configure Connection
+    - name: Install Gaming Essentials
+      run: |
+        sudo apt install -y wine lutris mesa-utils
+        sudo apt install -y firefox
+
+    - name: Setup Ngrok & Display Connection
       run: |
         wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
         unzip ngrok-v3-stable-linux-amd64.zip
         ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-        nohup ./ngrok tcp 3390 &
+        ./ngrok tcp 3389 --log=stdout > ngrok.log &
         sleep 10
-        curl http://localhost:4040/api/tunnels | jq -r .tunnels[0].public_url
+        NGROK_URL=$(curl --silent http://127.0.0.1:4040/api/tunnels | jq -r .tunnels[0].public_url)
+        echo "🎮 Ubuntu Gaming Ready!"
+        echo "Connect using RDP to: $NGROK_URL"
+        echo "Username: gaming"
+        echo "Password: Vulkan-Gaming"
 
-    - name: Keep Active
+    - name: Keep Alive
       run: |
         while true; do
-          echo "🎮 Gaming System Active - $(date)"
+          echo "⚡ Ubuntu Active - $(date)"
           sleep 300
         done
