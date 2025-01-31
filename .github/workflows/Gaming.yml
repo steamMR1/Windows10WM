@@ -1,0 +1,64 @@
+name: Ubuntu Gaming System
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ubuntu-gaming:
+    runs-on: ubuntu-latest
+    timeout-minutes: 525600
+
+    steps:
+    - name: Setup Gaming Environment
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies
+        sudo apt-get install -y xrdp
+        sudo systemctl enable xrdp
+        sudo adduser xrdp ssl-cert
+        sudo systemctl restart xrdp
+        
+    - name: Configure XRDP
+      run: |
+        sudo cp /etc/xrdp/xrdp.ini /etc/xrdp/xrdp.ini.bak
+        echo "[globals]
+        max_bpp=128
+        use_compression=yes
+        port=3390
+        [xrdp1]
+        name=sesman-Xvnc
+        lib=libvnc.so
+        username=ask
+        password=ask
+        ip=127.0.0.1
+        port=-1" | sudo tee /etc/xrdp/xrdp.ini
+        sudo systemctl restart xrdp
+
+    - name: Setup User
+      run: |
+        sudo useradd -m -s /bin/bash gaming
+        echo "gaming:Vulkan-Gaming" | sudo chpasswd
+        sudo usermod -aG sudo gaming
+        echo "gaming ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/gaming
+        sudo chmod 0440 /etc/sudoers.d/gaming
+
+    - name: Install Gaming Tools
+      run: |
+        sudo apt-get install -y wine lutris
+        sudo apt-get install -y mesa-utils
+
+    - name: Configure Ngrok
+      run: |
+        wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
+        unzip ngrok-v3-stable-linux-amd64.zip
+        ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        ./ngrok tcp 3390 --log=stdout > ngrok.log &
+        sleep 10
+        echo "✨ Connection URL: $(grep -o "tcp://.*" ngrok.log | head -1)"
+
+    - name: Keep Active
+      run: |
+        while true; do
+          echo "🎮 Gaming System Active - $(date)"
+          sleep 300
+        done
